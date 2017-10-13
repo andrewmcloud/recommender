@@ -18,7 +18,8 @@
   "get probability user will like item"
   [user item]
   (let [score (calculate-item-probability user item)]
-    (println user ":" item ":" score)))
+    (println user ":" item ":" score)
+    score))
 
 (defn suggest
   "suggest items for user"
@@ -26,7 +27,8 @@
   (println "Retrieving " max "results for user: " user)
   (update-suggested-items user (dec max))
   (let [suggestions (get-user-suggestions user (dec max))]
-    (println "Results: " suggestions)))
+    (println "Results: " suggestions)
+    suggestions))
 
 (defn update-db
   "update database - required after additional ratings"
@@ -34,8 +36,9 @@
   (println "Updating DB")
   (update-similar-users (dec max)))
 
-(def clear-db
+(defn clear-db
   "clears database completely"
+  []
   (flush-db))
 
 (defn -main
