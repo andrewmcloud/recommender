@@ -21,22 +21,43 @@
     (Math/sqrt)))
 
 (defn parse-redis-response-int
+  "rsp in form ['key1' 'score1' ... 'keyn' 'scoren'] - extract scores and convert to int"
   [rsp]
   (map (fn [[a b]]
          (Integer/parseInt b))
        (partition 2 rsp)))
 
+(defn build-user-suggestions
+  [user items f]
+  (flatten
+    (reduce (fn [coll item]
+              (conj coll [(f user item) item]))
+            []
+            items)))
+
+(defn build-item-sets
+  [items t1 t2]
+  (reduce (fn [coll item]
+            (conj coll (str t1 ":" item ":" t2)))
+          []
+          items))
+
 (defn remove-key
+  "delete temporary table used for serverside calculations from db"
   [key]
   (wcar* (car/del key)))
+
+(defn flush-db
+  "flush db"
+  []
+  (wcar* (car/flushall)))
 
 (defn add-rating
   "add user rating for item"
   [user, item, rating]
-  (wcar*
-    (car/zadd (str "user:" user ":items") rating item)
-    (car/zadd (str "item:" item ":ratings") rating user)
-    (car/zadd ("users" user))))
+  (wcar* (car/zadd (str "user:" user ":items") rating item)
+         (car/zadd (str "item:" item ":ratings") rating user)
+         (car/sadd "users" user)))
 
 (defn get-user-items
   "return list of items rated by user"
@@ -69,7 +90,6 @@
   [user item]
   (let [user-item-keys [(str "user:" user ":similarusers") (str "item:" item ":ratings")]]
     (wcar* (car/zinterstore* "ztmp" user-item-keys "WEIGHTS" 0 1))
-
     (let [scores (wcar* (car/zrange "ztmp" 0 -1 "WITHSCORES"))
           ct (/ (count scores) 2)]
       (if (zero? ct)
@@ -83,54 +103,42 @@
   "return vector of similar users based on item ratings"
   [user max]
   (let [items (get-user-items user max)
-        item-ranking-sets (reduce (fn [coll item]
-                                    (conj coll (str "item:" item ":scores")))
-                                  []
-                                  items)
-        _ (wcar* (car/zunionstore* "ztmp" item-ranking-sets))
+        _ (wcar* (car/zunionstore* "ztmp" (build-item-sets items "item" "ratings")))
         union-users (wcar* (car/zrange "ztmp" 0 -1))]
-    (wcar* (car/del "ztmp"))
+    (remove-key "ztmp")
     union-users))
 
 (defn update-similar-users
   "updates the sorted set of similar users for each user"
   [max-sim-users]
   (let [users (wcar* (car/smembers "users"))]
+    (println users)
     (if (empty? users)
       nil
-      (do
-        (map (fn [user]
-               (let [candidates (get-similar-candidates user max-sim-users)
-                     similar-users (flatten
-                                     (reduce (fn [coll candidate]
-                                               (conj coll [(calculate-user-similarity user candidate) candidate]))
-                                             []
-                                             candidates))]
-                 (wcar*
-                   (apply (partial car/zadd (str "user:" user ":similarusers")) similar-users)))) users)))))
+      (map (fn [user]
+             (let [candidates (get-similar-candidates user max-sim-users)
+                   similar-users (build-user-suggestions user candidates calculate-user-similarity)]
+               (wcar*
+                 (apply (partial car/zadd (str "user:" user ":similarusers")) similar-users)))) users))))
 
 (defn get-suggested-candidates
   "returns vector of similar users"
   [user max-candidates]
   (let [sim-users (wcar* (car/zrange (str "user:" user ":similarusers") 0 max-candidates))
         ct (count sim-users)
-        user-item-sets (reduce (fn [coll sim-user]
-                                 (conj coll (str "user:" sim-user ":items")))
-                               []
-                               sim-users)
-        _ (wcar* (car/zunionstore* "ztmp" (join " " user-item-sets) "WEIGTHS" -1 "AGREGATE" "MIN"))
-        union (car/zrangebyscore "ztmp" 0 "inf")]
-    (car/del "ztmp")
+        item-sets (cons (str "user:" user ":items") (build-item-sets sim-users "user" "items"))
+        weights (concat ["WEIGHTS" -1] (replicate ct 1) ["AGGREGATE" "MIN"])
+        _ (wcar* (apply (partial car/zunionstore* "ztmp" item-sets) weights))
+        union (wcar* (car/zrangebyscore "ztmp" 0 "inf"))]
+    (remove-key "ztmp")
     union))
 
 (defn update-suggested-items
   "updates suggested items for user"
   [user max-items]
   (let [items (get-suggested-candidates user max-items)
-        max-items (count items)
-        add-items (flatten (reduce (fn [coll item]
-                                     (conj coll [(calculate-item-probability user item) item]))
-                                   []
-                                   items))]
-    (wcar*
-      (apply (partial car/zadd (str "user:" user ":suggestions")) add-items))))
+        add-items (build-user-suggestions user items calculate-item-probability)]
+    (if (= 0 (count add-items))
+      (println "no suggested candidates")
+      (wcar* (apply (partial car/zadd (str "user:" user ":suggestions")) add-items)))))
+

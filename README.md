@@ -1,36 +1,28 @@
 # recommender
 
-FIXME: description
+A simple redis based recommender engine, derived from redis-labs go example
 
 ## Installation
 
-Download from http://example.com/FIXME.
+Install dependencies with lein
 
 ## Usage
 
-FIXME: explanation
+Currently only an API. Run in REPL
 
-    $ java -jar recommender-0.1.0-standalone.jar [args]
+Add Rating
+```clojure
+(rate "user-name" "item-name" rating)
+```
 
-## Options
+Update Database
+```clojure
+(update-db max-similar-users)
+```
 
-FIXME: listing of options this app accepts.
+Suggest
+```clojure
+(suggest "users-name" max-suggestions)
+```
 
-## Examples
 
-...
-
-### Bugs
-
-...
-
-### Any Other Sections
-### That You Think
-### Might be Useful
-
-## License
-
-Copyright © 2017 FIXME
-
-Distributed under the Eclipse Public License either version 1.0 or (at
-your option) any later version.
