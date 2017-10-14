@@ -112,14 +112,15 @@
   "updates the sorted set of similar users for each user"
   [max-sim-users]
   (let [users (wcar* (car/smembers "users"))]
-    (println users)
     (if (empty? users)
-      nil
-      (map (fn [user]
-             (let [candidates (get-similar-candidates user max-sim-users)
-                   similar-users (build-user-suggestions user candidates calculate-user-similarity)]
-               (wcar*
-                 (apply (partial car/zadd (str "user:" user ":similarusers")) similar-users)))) users))))
+      (do
+        (println "database is empty")
+        nil)
+      (doall (map (fn [user]
+                    (let [candidates (get-similar-candidates user max-sim-users)
+                          similar-users (build-user-suggestions user candidates calculate-user-similarity)]
+                      (wcar*
+                        (apply (partial car/zadd (str "user:" user ":similarusers")) similar-users)))) users)))))
 
 (defn get-suggested-candidates
   "returns vector of similar users"

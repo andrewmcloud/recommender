@@ -2,9 +2,15 @@
   (:require [clojure.test :refer :all]
             [recommender.core :refer :all]))
 
+(defn db-fixture [f]
+  (clear-db)
+  (f)
+  (clear-db))
+
+(use-fixtures :each db-fixture)
+
 (deftest simple-integration-test
   (testing "Recommender picks most similar first."
-    (clear-db)
     (rate "name1" "i1" 3)
     (rate "name1" "i2" 3)
     (rate "name1" "i3" 2)
